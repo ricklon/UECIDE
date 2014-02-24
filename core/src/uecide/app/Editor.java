@@ -55,6 +55,7 @@ public class Editor extends JFrame implements RunnerListener {
     JMenu sketchMenu;
     JMenu hardwareMenu;
     JMenu toolsMenu;
+    JMenu helpMenu;
 
     JLabel lineStatus;
 
@@ -66,8 +67,11 @@ public class Editor extends JFrame implements RunnerListener {
     JMenu boardsMenu;
     JMenu coresMenu;
     JMenu serialMenu;
+    JMenu optionsMenu;
     JMenu programmersMenu;
     JMenu bootloadersMenu;
+
+    HashMap<String, String> selectedOptions = new HashMap<String, String>();
 
     SerialMenuListener serialMenuListener;
   
@@ -550,6 +554,21 @@ public class Editor extends JFrame implements RunnerListener {
       });
     fileMenu.add(saveAsMenuItem);
 
+    item = new JMenuItem(Translate.t("Export as SAR..."));
+    item.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent e) {
+            sketch.exportSAR();
+        }
+    });
+    fileMenu.add(item);
+    item = new JMenuItem(Translate.t("Import SAR..."));
+    item.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent e) {
+            sketch.importSAR();
+        }
+    });
+    fileMenu.add(item);
+
     item = newJMenuItem(Translate.t("Compile and Upload"), 'U');
     item.addActionListener(new ActionListener() {
         public void actionPerformed(ActionEvent e) {
@@ -704,6 +723,12 @@ public class Editor extends JFrame implements RunnerListener {
     }
     menu.add(coresMenu);
     
+    if (optionsMenu == null) {
+        optionsMenu = new JMenu(Translate.t("Options"));
+        rebuildOptionsMenu();
+    }
+    menu.add(optionsMenu);
+
     if (serialMenuListener == null)
       serialMenuListener  = new SerialMenuListener();
     if (serialMenu == null)
@@ -711,7 +736,7 @@ public class Editor extends JFrame implements RunnerListener {
     populateSerialMenu();
     menu.add(serialMenu);
 
-    menu.addMenuListener(new MenuListener() {
+    serialMenu.addMenuListener(new MenuListener() {
       public void menuCanceled(MenuEvent e) {}
       public void menuDeselected(MenuEvent e) {}
       public void menuSelected(MenuEvent e) {
@@ -732,6 +757,166 @@ public class Editor extends JFrame implements RunnerListener {
     return menu;
   }
 
+    public ArrayList<String> getAllChildren(String key) {
+        ArrayList<String> children = new ArrayList<String>();
+        if (compiler != null) {
+            ArrayList<String> compilerChildren = compiler.getProperties().children(key);
+            for (String c : compilerChildren) {
+                int i = children.indexOf(c);
+                if (i >= 0) {
+                    children.remove(i);
+                }
+                children.add(c);
+            }
+        }
+        if (core != null) {
+            ArrayList<String> coreChildren = core.getProperties().children(key);
+            for (String c : coreChildren) {
+                int i = children.indexOf(c);
+                if (i >= 0) {
+                    children.remove(i);
+                }
+                children.add(c);
+            }
+        }
+        if (board != null) {
+            ArrayList<String> boardChildren = board.getProperties().children(key);
+            for (String c : boardChildren) {
+                int i = children.indexOf(c);
+                if (i >= 0) {
+                    children.remove(i);
+                }
+                children.add(c);
+            }
+        }
+        return children;
+    }
+    
+    public boolean getBoolByKey(String key) {
+        if (board.getProperties().get(key) != null) {
+            return board.getProperties().getBoolean(key);
+        }
+        if (core.getProperties().get(key) != null) {
+            return core.getProperties().getBoolean(key);
+        }
+        if (compiler.getProperties().get(key) != null) {
+            return compiler.getProperties().getBoolean(key);
+        }
+        return false;
+    }
+    public String getAllByKey(String key) {
+        if (board.getProperties().get(key) != null) {
+            return board.getProperties().get(key);
+        }
+        if (core.getProperties().get(key) != null) {
+            return core.getProperties().get(key);
+        }
+        if (compiler.getProperties().get(key) != null) {
+            return compiler.getProperties().get(key);
+        }
+        return null;
+    }
+
+    public void rebuildOptionsMenu() {
+        selectedOptions = new HashMap<String, String>();
+        if (board == null) {
+            optionsMenu.setEnabled(false);
+            return;
+        }
+        optionsMenu.removeAll();
+        ArrayList<String>options = getAllChildren("options");
+        for (String opt : options) {
+            String optionName = getAllByKey("options." + opt + ".name");
+            String optionDefault = getAllByKey("options." + opt + ".default");
+            JMenu optMen = new JMenu(optionName);
+            JMenuItem defaultItem = null;
+            boolean gotSelected = false;
+
+            ArrayList<String>optKids = getAllChildren("options." + opt);
+            ButtonGroup bg = new ButtonGroup();
+            for (String kid : optKids) {
+                if (kid.equals("name") || kid.equals("default") || kid.equals("purge")) {
+                    continue;
+                }
+                String kidName = getAllByKey("options." + opt + "." + kid + ".name");
+                if (kidName != null) {
+                    AbstractAction action = new AbstractAction(kidName) {
+                        public void actionPerformed(ActionEvent actionevent) {
+                            setOption((String)getValue("opt"), (String)getValue("sub"));
+                        }
+                    };
+                    action.putValue("opt", opt);
+                    action.putValue("sub", kid);
+                    JMenuItem item = new JRadioButtonMenuItem(action);
+                    if (kid.equals(optionDefault)) {
+                        defaultItem = item;
+                    }
+                    bg.add(item);
+                    if (optionIsSet(opt, kid)) {
+                        setOption(opt, kid);
+                        item.setSelected(true); 
+                        gotSelected = true;
+                    }
+
+                    if (Base.preferences.get("options." + board.getName() + "." + opt) != null) {
+                        if (Base.preferences.get("options." + board.getName() + "." + opt).equals(kid)) {
+                            setOption(opt, kid);
+                            item.setSelected(true);
+                            gotSelected = true;
+                        }
+                    }
+
+                    if (!gotSelected) {
+                        if (defaultItem != null) {
+                            setOption(opt, optionDefault);
+                            defaultItem.setSelected(true);
+                        }
+                    }
+                    optMen.add(item);
+                }
+            }
+            optionsMenu.add(optMen);
+        }
+        if (optionsMenu.getItemCount() == 0) {
+            optionsMenu.setEnabled(false);
+        } else {
+            optionsMenu.setEnabled(true);
+        }
+    }
+
+    public void setOption(String opt, String val) {
+        selectedOptions.put(opt, val);
+        optionsToPreferences();
+        if (getBoolByKey("options." + opt + ".purge")) {
+            sketch.needPurge();
+        }
+    }
+
+    public boolean optionIsSet(String opt, String val) {
+        if (selectedOptions.get(opt) != null) {
+            if (selectedOptions.get(opt).equals(val)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public void optionsToPreferences() {
+        for (String opt : selectedOptions.keySet()) {
+            Base.preferences.set("options." + board.getName() + "." + opt, selectedOptions.get(opt));
+        }
+    }
+
+    public String getFlags(String type) {
+        String flags = "";
+        for (String opt : selectedOptions.keySet()) {
+            String f = getAllByKey("options." + opt + "." + selectedOptions.get(opt) + "." + type);
+            if (f != null) {
+                flags = flags + "::" + f;
+            }
+        }
+        return flags;
+    }
  
     public JMenu buildToolsMenu()
     {
@@ -798,14 +983,18 @@ public class Editor extends JFrame implements RunnerListener {
             serialMenu.add(rbMenuItem);
             empty = false;
         }
-        serialMenu.setEnabled(!empty);
+        serialMenu.setEnabled(true);
     }
 
 
   protected JMenu buildHelpMenu() {
-    // To deal with a Mac OS X 10.5 bug, add an extra space after the name
-    // so that the OS doesn't try to insert its slow help menu.
-    JMenu menu = new JMenu(Translate.t("Help"));
+    helpMenu = new JMenu(Translate.t("Help"));
+    rebuildHelpMenu();
+    return helpMenu;
+  }
+
+  public void rebuildHelpMenu() {
+    helpMenu.removeAll();
     JMenuItem item;
 
     item = new JMenuItem(Translate.t("About This Sketch"));
@@ -814,7 +1003,31 @@ public class Editor extends JFrame implements RunnerListener {
             sketch.about();
         }
     });
-    menu.add(item);
+    helpMenu.add(item);
+
+    if (board != null) {
+        if (board.getManual() != null) {
+            item = new JMenuItem(Translate.t("Manual for %1", board.getLongName()));
+            item.addActionListener(new ActionListener() {
+                public void actionPerformed(ActionEvent e) {
+                    Base.open(board.getManual().getAbsolutePath());
+                }
+            });
+            helpMenu.add(item);
+        }
+    }
+
+    if (core != null) {
+        if (core.getManual() != null) {
+            item = new JMenuItem(Translate.t("Manual for %1", board.getName()));
+            item.addActionListener(new ActionListener() {
+                public void actionPerformed(ActionEvent e) {
+                    Base.open(core.getManual().getAbsolutePath());
+                }
+            });
+            helpMenu.add(item);
+        }
+    }
 
     if (Base.theme.get("links.gettingstarted.url") != null) {
         item = new JMenuItem(Translate.t("Getting Started"));
@@ -823,7 +1036,7 @@ public class Editor extends JFrame implements RunnerListener {
               Base.openURL(Base.theme.get("links.gettingstarted.url"));
             }
           });
-        menu.add(item);
+        helpMenu.add(item);
     }
 
     if (Base.theme.get("links.environment.url") != null) {
@@ -833,7 +1046,7 @@ public class Editor extends JFrame implements RunnerListener {
               Base.openURL(Base.theme.get("links.environment.url"));
             }
           });
-        menu.add(item);
+        helpMenu.add(item);
     }
 
     if (Base.theme.get("links.troubleshooting.url") != null) {
@@ -843,7 +1056,7 @@ public class Editor extends JFrame implements RunnerListener {
               Base.openURL(Base.theme.get("links.troubleshooting.url"));
             }
           });
-        menu.add(item);
+        helpMenu.add(item);
     }
 
 
@@ -854,7 +1067,7 @@ public class Editor extends JFrame implements RunnerListener {
               Base.openURL(Base.theme.get("links.reference.url"));
             }
           });
-        menu.add(item);
+        helpMenu.add(item);
     }
 
     if (Base.theme.get("links.faq.url") != null) {
@@ -864,7 +1077,7 @@ public class Editor extends JFrame implements RunnerListener {
               Base.openURL(Base.theme.get("links.faq.url"));
             }
           });
-        menu.add(item);
+        helpMenu.add(item);
     }
 
     String linkName = Base.theme.get("links.homepage.name");
@@ -875,7 +1088,7 @@ public class Editor extends JFrame implements RunnerListener {
               Base.openURL(Base.theme.get("links.homepage.url"));
             }
         });
-        menu.add(item);
+        helpMenu.add(item);
     }
 
     linkName = Base.theme.get("links.forums.name");
@@ -886,19 +1099,19 @@ public class Editor extends JFrame implements RunnerListener {
               Base.openURL(Base.theme.get("links.forums.url"));
             }
         });
-        menu.add(item);
+        helpMenu.add(item);
     }
 
     // macosx already has its own about menu
     if (!Base.isMacOS()) {
-      menu.addSeparator();
+      helpMenu.addSeparator();
       item = new JMenuItem(Translate.t("About %1", Base.theme.get("product.cap")));
       item.addActionListener(new ActionListener() {
           public void actionPerformed(ActionEvent e) {
             Base.handleAbout();
           }
         });
-      menu.add(item);
+      helpMenu.add(item);
     }
 
     item = new JMenuItem(Translate.t("System Information"));
@@ -907,9 +1120,8 @@ public class Editor extends JFrame implements RunnerListener {
             Base.handleSystemInfo();
         }
     });
-    menu.add(item);
+    helpMenu.add(item);
 
-    return menu;
   }
 
     public void handleNewFile() {
@@ -1500,6 +1712,8 @@ public class Editor extends JFrame implements RunnerListener {
     public void populateMenus() {
         rebuildExamplesMenu();
         rebuildImportMenu();
+        rebuildHelpMenu();
+        rebuildOptionsMenu();
     }
 
     public void rebuildImportMenu() {
